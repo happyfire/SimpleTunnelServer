@@ -1,6 +1,7 @@
 #include <ev.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <signal.h>
 #include <sys/unistd.h>
 #include <sys/epoll.h>
@@ -10,8 +11,10 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <unistd.h>
 #include <netdb.h>
+#include <linux/if.h>
+#include <linux/if_tun.h>
+#include <sys/ioctl.h>
 
 #define BUFFER_SIZE 10240
 
@@ -21,10 +24,15 @@ void socket_write(struct ev_loop *main_loop, struct ev_io *client_w, int events)
 
 struct socket_conn_t {
 	struct ev_loop *loop;
+    int sockfd;
+    int tunfd;
 	ev_io read_w;
-	ev_io write_w;
+	ev_io tun_read_w;
 	char buffer[BUFFER_SIZE];
     size_t bufSize;
+    
+    struct sockaddr_storage src_addr;
+    socklen_t src_addr_len;
 };
 
 int socket_setnonblock(int fd)
@@ -132,49 +140,152 @@ void socket_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
 	}
     
     conn->bufSize = read;
+    conn->src_addr = src_addr;
+    conn->src_addr_len = src_addr_len;
 
 	fprintf(stdout, "%s recevie udp data len: [%lu]\n", __func__, read);
 
+    //write to tun
     
-
-	
-	//ev_io_start(conn->loop, &conn->write_w);
-
+    size_t nwrite;
+    
+    if((nwrite=write(conn->tunfd, (void*)conn->buffer, conn->bufSize)) < 0){
+        perror("Writing data to tun");
+    }
+    else{
+        fprintf(stdout, "%s write to tun len: [%lu]\n", __func__, nwrite);
+    }
 }
 
-void socket_write(struct ev_loop *main_loop, struct ev_io *client_w, int events)
+void tun_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
 {
-//	struct socket_conn_t *conn = NULL;
-//
-//	if(EV_ERROR & events){
-//		fprintf(stderr, "%s error event\n", __func__);
-//		return;
-//	}
-//
-//	conn = (struct socket_conn_t *)client_w->data;
-//
-//	// write/clean data buffer
-//	if(conn->buffer == NULL){
-//		ev_io_stop(conn->loop, &conn->write_w);
-//		return;
-//	}
-//
-//	send(client_w->fd, conn->buffer, strlen(conn->buffer), 0);
-//	free(conn->buffer);
-//	conn->buffer = NULL;
-//
-//	ev_io_stop(conn->loop, &conn->write_w);
-//	return;
+    struct socket_conn_t *conn = NULL;
+    if(EV_ERROR & events){
+        fprintf(stderr, "%s error event\n", __func__);
+        return;
+    }
+    
+    conn = (struct socket_conn_t *)client_w->data;
+    
+    size_t nread;
+    
+    if((nread = read(conn->tunfd, (void*)conn->buffer, BUFFER_SIZE)) < 0){
+        perror("Reading data from tun");
+        exit(1);
+    }
+    
+    conn->bufSize = nread;
+    
+    fprintf(stdout, "%s read tun len: [%lu]\n", __func__, nread);
+    
+    //send to socket
+    size_t s = sendto(conn->sockfd, conn->buffer, conn->bufSize, 0, (struct sockaddr *)&conn->src_addr, conn->src_addr_len);
+    
+    if (s == -1) {
+        perror("sendto");
+    }
+    else{
+        fprintf(stdout, "%s sendto socket len: [%lu]\n", __func__, s);
+    }
+}
+
+int tun_alloc(char* dev)
+{
+    struct ifreq ifr;
+    int fd, err;
+    char *clonedev = "/dev/net/tun";
+    
+    if((fd = open(clonedev, O_RDWR)) < 0){
+        perror("open clonedev");
+        return fd;
+    }
+    
+    memset(&ifr, 0, sizeof(ifr));
+    ifr.ifr_flags = IFF_TUN | IFF_NO_PI;
+    
+//    if (dev!=NULL && strlen(dev)>0) {
+//        strncpy(ifr.ifr_name, dev, IFNAMSIZ);
+//    }
+    
+    if((err = ioctl(fd, TUNSETIFF, (void*)&ifr)) < 0){
+        perror("ioctl TUNSETIFF");
+        close(fd);
+        return err;
+    }
+    
+    strcpy(dev, ifr.ifr_name);
+    
+    fprintf(stdout, "open tun dev:%s\n", dev);
+    
+    return fd;
+}
+
+int tun_setup(const char* dev, const char* tunip, const char* netmask)
+{
+    struct ifreq ifr;
+    struct sockaddr_in addr;
+    int sockfd, err = -1;
+    
+    bzero(&addr, sizeof(addr));
+    addr.sin_family = AF_INET;
+    inet_pton(AF_INET, tunip, &addr.sin_addr);
+    
+    bzero(&ifr, sizeof(ifr));
+    strcpy(ifr.ifr_name, dev);
+    bcopy(&addr, &ifr.ifr_addr, sizeof(addr));
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0) {
+        perror("socket");
+        return -1;
+    }
+    
+    // ifconfig tap0 10.0.1.5 #设定ip地址
+    if ((err = ioctl(sockfd, SIOCSIFADDR, (void *)&ifr)) < 0) {
+        perror("ioctl SIOSIFADDR");
+        goto done;
+    }
+    
+    /* 获得接口的标志 */
+    if ((err = ioctl(sockfd, SIOCGIFFLAGS, (void *)&ifr)) < 0) {
+        perror("ioctl SIOCGIFADDR");
+        goto done;
+    }
+    
+    /* 设置接口的标志 */
+    ifr.ifr_flags |= IFF_UP;
+    // ifup tap0 #启动设备
+    if ((err = ioctl(sockfd, SIOCSIFFLAGS, (void *)&ifr)) < 0) {
+        perror("ioctl SIOCSIFFLAGS");
+        goto done;
+    }
+    
+    inet_pton(AF_INET, netmask, &addr.sin_addr);
+    bcopy(&addr, &ifr.ifr_netmask, sizeof(addr));
+    // ifconfig tap0 10.0.1.5/24 #设定子网掩码
+    if ((err = ioctl(sockfd, SIOCSIFNETMASK, (void *) &ifr)) < 0) {
+        perror("ioctl SIOCSIFNETMASK");
+        goto done;
+    }
+    
+    
+done:
+    close(sockfd);
+    return err;
 }
 
 int main(int argc, char *argv[])
 {
 	int sfd = 0, s = 0;
+    int tunfd = 0;
 
 	if(argc!=2){
 		fprintf(stderr, "Usage: %s [port]\n", argv[0]);
 		return -1;
 	}
+    
+    char tun_dev[IFNAMSIZ] = {'/0'};
+    tunfd = tun_alloc(tun_dev);
+    tun_setup(tun_dev, "10.0.1.3", "255.255.255.0");
 
 	sfd = socket_create_and_bind(argv[1]);
 	if(sfd==-1){
@@ -190,17 +301,20 @@ int main(int argc, char *argv[])
 
 	struct ev_loop *main_loop = ev_default_loop(0);
     
-    struct socket_conn_t conn;
-    memset(&conn, 0, sizeof(struct socket_conn_t));
+    struct socket_conn_t sock_conn;
+    memset(&sock_conn, 0, sizeof(struct socket_conn_t));
     
-    conn.loop = main_loop;
-    conn.read_w.data = (void*)&conn;
-    conn.write_w.data = (void*)&conn;
-    conn.bufSize = 0;
+    sock_conn.loop = main_loop;
+    sock_conn.sockfd = sfd;
+    sock_conn.tunfd = tunfd;
+    sock_conn.read_w.data = (void*)&sock_conn;
+    sock_conn.tun_read_w.data = (void*)&sock_conn;
+    sock_conn.bufSize = 0;
     
-    ev_io_init(&conn.read_w, socket_read, sfd, EV_READ);
-    ev_io_init(&conn.write_w, socket_write, sfd, EV_WRITE);
-    ev_io_start(main_loop, &conn.read_w);
+    ev_io_init(&sock_conn.read_w, socket_read, sfd, EV_READ);
+    ev_io_init(&sock_conn.tun_read_w, tun_read, tunfd, EV_READ);
+    ev_io_start(main_loop, &sock_conn.read_w);
+    
 
 	ev_run(main_loop, 0);
 
