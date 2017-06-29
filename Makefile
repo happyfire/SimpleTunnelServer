@@ -1,6 +1,7 @@
 CC = gcc
 
 CFLAGS=-g -Wall
+CFLAGS += -I/usr/include/libev
 LDFLAGS += -lev
 
 all: server
