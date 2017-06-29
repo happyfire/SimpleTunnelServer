@@ -16,6 +16,10 @@
 #include <linux/if_tun.h>
 #include <sys/ioctl.h>
 
+#if !defined(IFNAMSIZ)
+#define IFNAMSIZ 256
+#endif
+
 #define BUFFER_SIZE 10240
 
 void socket_accept(struct ev_loop *main_loop, ev_io *sock_w, int events);
@@ -28,8 +32,12 @@ struct socket_conn_t {
     int tunfd;
 	ev_io read_w;
 	ev_io tun_read_w;
-	char buffer[BUFFER_SIZE];
-    size_t bufSize;
+	char sock_buffer[BUFFER_SIZE];
+    size_t sock_buf_size;
+    char tun_buffer[BUFFER_SIZE];
+    size_t tun_buf_size;
+    int tun_read_start;
+    
     
     struct sockaddr_storage src_addr;
     socklen_t src_addr_len;
@@ -129,31 +137,35 @@ void socket_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
     memset(&src_addr, 0, sizeof(struct sockaddr_storage));
     socklen_t src_addr_len = sizeof(struct sockaddr_storage);
 
-    memset(conn->buffer, 0, sizeof(conn->buffer));
+    memset(conn->sock_buffer, 0, sizeof(conn->sock_buffer));
     
-	ssize_t read = recvfrom(client_w->fd, conn->buffer, BUFFER_SIZE, 0,
+	ssize_t nread = recvfrom(client_w->fd, conn->sock_buffer, BUFFER_SIZE, 0,
                             (struct sockaddr *)&src_addr, &src_addr_len);
-	if(read <0 ){
+	if(nread <0 ){
 		fprintf(stderr, "%s read error\n", __func__);
-        conn->bufSize = 0;
+        conn->sock_buf_size = 0;
 		return;
 	}
     
-    conn->bufSize = read;
+    conn->sock_buf_size = nread;
     conn->src_addr = src_addr;
     conn->src_addr_len = src_addr_len;
 
-	fprintf(stdout, "%s recevie udp data len: [%lu]\n", __func__, read);
+	fprintf(stdout, "%s recevie udp data len: [%lu]\n", __func__, nread);
 
     //write to tun
     
     size_t nwrite;
     
-    if((nwrite=write(conn->tunfd, (void*)conn->buffer, conn->bufSize)) < 0){
+    if((nwrite=write(conn->tunfd, (void*)conn->sock_buffer, conn->sock_buf_size)) < 0){
         perror("Writing data to tun");
     }
     else{
         fprintf(stdout, "%s write to tun len: [%lu]\n", __func__, nwrite);
+        if(conn->tun_read_start==0){
+        	ev_io_start(main_loop, &conn->tun_read_w);
+            conn->tun_read_start = 1;
+        }
     }
 }
 
@@ -169,17 +181,24 @@ void tun_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
     
     size_t nread;
     
-    if((nread = read(conn->tunfd, (void*)conn->buffer, BUFFER_SIZE)) < 0){
+    if((nread = read(conn->tunfd, (void*)conn->tun_buffer, BUFFER_SIZE)) < 0){
         perror("Reading data from tun");
         exit(1);
     }
     
-    conn->bufSize = nread;
+    conn->tun_buf_size = nread;
     
     fprintf(stdout, "%s read tun len: [%lu]\n", __func__, nread);
     
     //send to socket
-    size_t s = sendto(conn->sockfd, conn->buffer, conn->bufSize, 0, (struct sockaddr *)&conn->src_addr, conn->src_addr_len);
+//    struct sockaddr_in sockaddr4;
+//    memset(&sockaddr4, 0, sizeof(sockaddr4));
+//    
+//    sockaddr4.sin_family      = AF_INET;
+//    sockaddr4.sin_port        = htons(443);
+//    sockaddr4.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    
+    size_t s = sendto(conn->sockfd, conn->tun_buffer, conn->tun_buf_size, 0, (const struct sockaddr *)&conn->src_addr, conn->src_addr_len);
     
     if (s == -1) {
         perror("sendto");
@@ -203,9 +222,9 @@ int tun_alloc(char* dev)
     memset(&ifr, 0, sizeof(ifr));
     ifr.ifr_flags = IFF_TUN | IFF_NO_PI;
     
-//    if (dev!=NULL && strlen(dev)>0) {
-//        strncpy(ifr.ifr_name, dev, IFNAMSIZ);
-//    }
+    if (dev!=NULL && strlen(dev)>0) {
+        strncpy(ifr.ifr_name, dev, IFNAMSIZ);
+    }
     
     if((err = ioctl(fd, TUNSETIFF, (void*)&ifr)) < 0){
         perror("ioctl TUNSETIFF");
@@ -283,9 +302,16 @@ int main(int argc, char *argv[])
 		return -1;
 	}
     
-    char tun_dev[IFNAMSIZ] = {'/0'};
+    char tun_dev[IFNAMSIZ];
+    tun_dev[0] = '\0';
     tunfd = tun_alloc(tun_dev);
-    tun_setup(tun_dev, "10.0.1.3", "255.255.255.0");
+    tun_setup(tun_dev, "10.0.1.1", "255.255.255.0");
+    
+    s = socket_setnonblock(tunfd);
+    if(s==-1){
+        abort();
+        return -1;
+    }
 
 	sfd = socket_create_and_bind(argv[1]);
 	if(sfd==-1){
@@ -309,12 +335,14 @@ int main(int argc, char *argv[])
     sock_conn.tunfd = tunfd;
     sock_conn.read_w.data = (void*)&sock_conn;
     sock_conn.tun_read_w.data = (void*)&sock_conn;
-    sock_conn.bufSize = 0;
+    sock_conn.sock_buf_size = 0;
+    sock_conn.tun_buf_size = 0;
+    sock_conn.tun_read_start = 0;
     
     ev_io_init(&sock_conn.read_w, socket_read, sfd, EV_READ);
     ev_io_init(&sock_conn.tun_read_w, tun_read, tunfd, EV_READ);
     ev_io_start(main_loop, &sock_conn.read_w);
-    
+    //ev_io_start(main_loop, &sock_conn.tun_read_w);
 
 	ev_run(main_loop, 0);
 
