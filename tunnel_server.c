@@ -312,8 +312,7 @@ int main(int argc, char *argv[])
         }
     }
     
-    char tun_dev[IFNAMSIZ];
-    tun_dev[0] = '\0';
+    char tun_dev[IFNAMSIZ] = "xtun";
     tunfd = tun_alloc(tun_dev);
     tun_setup(tun_dev, "10.0.1.1", "255.255.255.0");
     
