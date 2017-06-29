@@ -26,6 +26,8 @@ void socket_accept(struct ev_loop *main_loop, ev_io *sock_w, int events);
 void socket_read(struct ev_loop *main_loop, struct ev_io *client_w, int events);
 void socket_write(struct ev_loop *main_loop, struct ev_io *client_w, int events);
 
+static int verbose = 0;
+
 struct socket_conn_t {
 	struct ev_loop *loop;
     int sockfd;
@@ -151,7 +153,9 @@ void socket_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
     conn->src_addr = src_addr;
     conn->src_addr_len = src_addr_len;
 
-	fprintf(stdout, "%s recevie udp data len: [%lu]\n", __func__, nread);
+    if(verbose){
+		fprintf(stdout, "%s recevie udp data len: [%lu]\n", __func__, nread);
+    }
 
     //write to tun
     
@@ -161,7 +165,9 @@ void socket_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
         perror("Writing data to tun");
     }
     else{
-        fprintf(stdout, "%s write to tun len: [%lu]\n", __func__, nwrite);
+        if(verbose){
+        	fprintf(stdout, "%s write to tun len: [%lu]\n", __func__, nwrite);
+        }
         if(conn->tun_read_start==0){
         	ev_io_start(main_loop, &conn->tun_read_w);
             conn->tun_read_start = 1;
@@ -188,15 +194,9 @@ void tun_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
     
     conn->tun_buf_size = nread;
     
-    fprintf(stdout, "%s read tun len: [%lu]\n", __func__, nread);
-    
-    //send to socket
-//    struct sockaddr_in sockaddr4;
-//    memset(&sockaddr4, 0, sizeof(sockaddr4));
-//    
-//    sockaddr4.sin_family      = AF_INET;
-//    sockaddr4.sin_port        = htons(443);
-//    sockaddr4.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if(verbose){
+    	fprintf(stdout, "%s read tun len: [%lu]\n", __func__, nread);
+    }
     
     size_t s = sendto(conn->sockfd, conn->tun_buffer, conn->tun_buf_size, 0, (const struct sockaddr *)&conn->src_addr, conn->src_addr_len);
     
@@ -204,7 +204,9 @@ void tun_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
         perror("sendto");
     }
     else{
-        fprintf(stdout, "%s sendto socket len: [%lu]\n", __func__, s);
+        if(verbose){
+        	fprintf(stdout, "%s sendto socket len: [%lu]\n", __func__, s);
+        }
     }
 }
 
@@ -286,6 +288,7 @@ int tun_setup(const char* dev, const char* tunip, const char* netmask)
         goto done;
     }
     
+    fprintf(stdout, "setup tun dev:%s [%s]\n", tunip, netmask);
     
 done:
     close(sockfd);
@@ -297,10 +300,17 @@ int main(int argc, char *argv[])
 	int sfd = 0, s = 0;
     int tunfd = 0;
 
-	if(argc!=2){
-		fprintf(stderr, "Usage: %s [port]\n", argv[0]);
+	if(argc<2){
+		fprintf(stderr, "Usage: %s [port] [-v]\n", argv[0]);
 		return -1;
 	}
+    
+    if(argc>=3){
+        if(strcmp(argv[2],"-v")==0){
+            verbose = 1;
+            fprintf(stdout,"verbose on\n");
+        }
+    }
     
     char tun_dev[IFNAMSIZ];
     tun_dev[0] = '\0';
