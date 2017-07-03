@@ -5,7 +5,7 @@ CPPFLAGS += -I/usr/include/libev
 LDFLAGS += -lev
 
 
-SOURCES = tunnel_server.c
+SOURCES = src/tunnel_server.c src/base/cache.c src/base/utils.c
 OBJECTS = $(SOURCES:.c=.o)
 
 all: server
@@ -16,6 +16,7 @@ server: $(OBJECTS)
 clean:
 	@echo "Cleanning project"
 	-rm *.o server
+	-rm src/*.d src/base/*.d
 	@echo "Clean complete"
 
 .PHONY:clean
