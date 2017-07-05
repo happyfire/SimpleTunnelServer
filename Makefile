@@ -4,7 +4,7 @@ CFLAGS :=-g -Wall -std=gnu99
 CPPFLAGS += -I/usr/include/libev
 LDFLAGS += -lev
 
-SOURCES = src/main.c src/tunnel_server.c src/base/cache.c src/base/utils.c
+SOURCES = src/main.c src/tunnel_server.c src/client.c src/base/cache.c src/base/utils.c
 OBJECTS = $(SOURCES:.c=.o)
 
 all: server

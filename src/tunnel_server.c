@@ -18,6 +18,7 @@
 
 #include "tunnel_server.h"
 #include "tunnel_protocol.h"
+#include "client.h"
 
 #if !defined(IFNAMSIZ)
 #define IFNAMSIZ 256
@@ -28,7 +29,10 @@
 
 int verbose = 0;
 
-struct socket_conn_t {
+static uint32_t min_ip;
+static uint32_t max_ip;
+
+struct server_ctx {
 	struct ev_loop *loop;
     int sockfd;
     int tunfd;
@@ -39,11 +43,21 @@ struct socket_conn_t {
     char tun_buffer[BUFFER_SIZE];
     size_t tun_buf_size;
     int tun_read_start;
-    
-    
+
+    uint32_t next_ip_avaliable;
+
     struct sockaddr_storage src_addr;
     socklen_t src_addr_len;
 };
+
+void server_init()
+{
+    struct in_addr sin_addr;
+    inet_pton(AF_INET, "10.0.0.2", &sin_addr);
+    min_ip = ntohl(sin_addr.s_addr);
+    inet_pton(AF_INET, "10.0.255.254", &sin_addr);
+    max_ip = ntohl(sin_addr.s_addr);
+}
 
 int socket_setnonblock(int fd)
 {
@@ -127,55 +141,73 @@ int socket_create_and_bind(const char *port)
 
 void socket_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
 {
-	struct socket_conn_t *conn = NULL;
+	struct server_ctx *ctx = NULL;
 	if(EV_ERROR & events){
 		fprintf(stderr, "%s error event\n", __func__);
 		return;
 	}
 
-	conn = (struct socket_conn_t *)client_w->data;
+    ctx = (struct server_ctx *)client_w->data;
     
     struct sockaddr_storage src_addr;
     memset(&src_addr, 0, sizeof(struct sockaddr_storage));
     socklen_t src_addr_len = sizeof(struct sockaddr_storage);
 
-    memset(conn->sock_buffer, 0, sizeof(conn->sock_buffer));
+    memset(ctx->sock_buffer, 0, sizeof(ctx->sock_buffer));
     
-	ssize_t nread = recvfrom(client_w->fd, conn->sock_buffer, BUFFER_SIZE, 0,
+	ssize_t nread = recvfrom(ctx->sockfd, ctx->sock_buffer, BUFFER_SIZE, 0,
                             (struct sockaddr *)&src_addr, &src_addr_len);
 	if(nread <0 ){
 		fprintf(stderr, "%s read error\n", __func__);
-        conn->sock_buf_size = 0;
+        ctx->sock_buf_size = 0;
 		return;
 	}
-    
-    conn->sock_buf_size = nread;
-    conn->src_addr = src_addr;
-    conn->src_addr_len = src_addr_len;
+
+    ctx->sock_buf_size = nread;
+    ctx->src_addr = src_addr;
+    ctx->src_addr_len = src_addr_len;
 
     if(verbose){
 		fprintf(stdout, "%s recevie udp data len: [%lu]\n", __func__, nread);
     }
 
-    if(conn->sock_buffer[1]==TUNNEL_CMD_CONNECT){
-        int guid_len = conn->sock_buffer[2];
+    if(ctx->sock_buffer[1]==TUNNEL_CMD_CONNECT){
+        int guid_len = ctx->sock_buffer[2];
 
         char guid[129];
-        memcpy(guid, conn->sock_buffer + sizeof(tunnel_connect_header), guid_len);
+        memcpy(guid, ctx->sock_buffer + sizeof(tunnel_connect_header), guid_len);
         guid[guid_len] = '\0';
         fprintf(stdout, "on connect, guid : [%s]\n", guid);
 
+        client_t *cli = find_client_by_guid(guid);
+        if(cli == NULL){
+            cli = new_client();
+            memcpy(cli->guid, guid, guid_len+1);
+            fprintf(stdout, "set client guid : [%s]\n", cli->guid);
+            cli->ip = htonl(ctx->next_ip_avaliable);
+            ctx->next_ip_avaliable ++;
+            if(ctx->next_ip_avaliable > max_ip){
+                ctx->next_ip_avaliable = min_ip;
+            }
+            add_client(cli);
+            fprintf(stdout, "set client ip : [%d]\n", cli->ip);
+        }
+        else{
+            fprintf(stdout,"client reconnect. guid=%s",cli->guid);
+        }
+
         int buf_len = sizeof(tunnel_connect_ok_done);
         char connect_ok[1024];
+        char* tmp = &connect_ok;
         connect_ok[0] = TUNNEL_VERSION;
         connect_ok[1] = TUNNEL_CMD_CONNECT_OK;
-        connect_ok[2] = 10;
-        connect_ok[3] = 0;
-        connect_ok[4] = 1;
-        connect_ok[5] = 3;
+        tmp+=2;
+        int* tmpi = (int*)tmp;
+        *tmpi = cli->ip;
+
         connect_ok[6] = 1;
 
-        size_t s = sendto(conn->sockfd, connect_ok, buf_len, 0, (const struct sockaddr *)&conn->src_addr, conn->src_addr_len);
+        size_t s = sendto(ctx->sockfd, connect_ok, buf_len, 0, (const struct sockaddr *)&ctx->src_addr, ctx->src_addr_len);
 
         if (s == -1) {
             perror("sendto");
@@ -193,44 +225,44 @@ void socket_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
     
     size_t nwrite;
     
-    if((nwrite=write(conn->tunfd, (void*)conn->sock_buffer, conn->sock_buf_size)) < 0){
+    if((nwrite=write(ctx->tunfd, (void*)ctx->sock_buffer, ctx->sock_buf_size)) < 0){
         perror("Writing data to tun");
     }
     else{
         if(verbose){
         	fprintf(stdout, "%s write to tun len: [%lu]\n", __func__, nwrite);
         }
-        if(conn->tun_read_start==0){
-        	ev_io_start(main_loop, &conn->tun_read_w);
-            conn->tun_read_start = 1;
+        if(ctx->tun_read_start==0){
+        	ev_io_start(main_loop, &ctx->tun_read_w);
+            ctx->tun_read_start = 1;
         }
     }
 }
 
 void tun_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
 {
-    struct socket_conn_t *conn = NULL;
+    struct server_ctx *ctx = NULL;
     if(EV_ERROR & events){
         fprintf(stderr, "%s error event\n", __func__);
         return;
     }
     
-    conn = (struct socket_conn_t *)client_w->data;
+    ctx = (struct server_ctx *)client_w->data;
     
     size_t nread;
     
-    if((nread = read(conn->tunfd, (void*)conn->tun_buffer, BUFFER_SIZE)) < 0){
+    if((nread = read(ctx->tunfd, (void*)ctx->tun_buffer, BUFFER_SIZE)) < 0){
         perror("Reading data from tun");
         exit(1);
     }
     
-    conn->tun_buf_size = nread;
+    ctx->tun_buf_size = nread;
     
     if(verbose){
     	fprintf(stdout, "%s read tun len: [%lu]\n", __func__, nread);
     }
     
-    size_t s = sendto(conn->sockfd, conn->tun_buffer, conn->tun_buf_size, 0, (const struct sockaddr *)&conn->src_addr, conn->src_addr_len);
+    size_t s = sendto(ctx->sockfd, ctx->tun_buffer, ctx->tun_buf_size, 0, (const struct sockaddr *)&ctx->src_addr, ctx->src_addr_len);
     
     if (s == -1) {
         perror("sendto");
@@ -354,24 +386,27 @@ void tunnel_server_start(const char *port, int v)
         return;
     }
 
+    server_init();
+
     struct ev_loop *main_loop = ev_default_loop(0);
 
-    struct socket_conn_t sock_conn;
-    memset(&sock_conn, 0, sizeof(struct socket_conn_t));
+    struct server_ctx ctx;
+    memset(&ctx, 0, sizeof(struct server_ctx));
 
-    sock_conn.loop = main_loop;
-    sock_conn.sockfd = sfd;
-    sock_conn.tunfd = tunfd;
-    sock_conn.read_w.data = (void*)&sock_conn;
-    sock_conn.tun_read_w.data = (void*)&sock_conn;
-    sock_conn.sock_buf_size = 0;
-    sock_conn.tun_buf_size = 0;
-    sock_conn.tun_read_start = 0;
+    ctx.loop = main_loop;
+    ctx.sockfd = sfd;
+    ctx.tunfd = tunfd;
+    ctx.read_w.data = (void*)&ctx;
+    ctx.tun_read_w.data = (void*)&ctx;
+    ctx.sock_buf_size = 0;
+    ctx.tun_buf_size = 0;
+    ctx.tun_read_start = 0;
+    ctx.next_ip_avaliable = min_ip;
 
-    ev_io_init(&sock_conn.read_w, socket_read, sfd, EV_READ);
-    ev_io_init(&sock_conn.tun_read_w, tun_read, tunfd, EV_READ);
-    ev_io_start(main_loop, &sock_conn.read_w);
-    //ev_io_start(main_loop, &sock_conn.tun_read_w);
+    ev_io_init(&ctx.read_w, socket_read, sfd, EV_READ);
+    ev_io_init(&ctx.tun_read_w, tun_read, tunfd, EV_READ);
+    ev_io_start(main_loop, &ctx.read_w);
+    //ev_io_start(main_loop, &ctx.tun_read_w);
 
     ev_run(main_loop, 0);
 }
