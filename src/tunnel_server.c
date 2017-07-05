@@ -4,7 +4,6 @@
 #include <unistd.h>
 #include <signal.h>
 #include <sys/unistd.h>
-#include <sys/epoll.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -15,6 +14,10 @@
 #include <linux/if.h>
 #include <linux/if_tun.h>
 #include <sys/ioctl.h>
+#include <string.h>
+
+#include "tunnel_server.h"
+#include "tunnel_protocol.h"
 
 #if !defined(IFNAMSIZ)
 #define IFNAMSIZ 256
@@ -22,11 +25,8 @@
 
 #define BUFFER_SIZE 10240
 
-void socket_accept(struct ev_loop *main_loop, ev_io *sock_w, int events);
-void socket_read(struct ev_loop *main_loop, struct ev_io *client_w, int events);
-void socket_write(struct ev_loop *main_loop, struct ev_io *client_w, int events);
 
-static int verbose = 0;
+int verbose = 0;
 
 struct socket_conn_t {
 	struct ev_loop *loop;
@@ -157,6 +157,38 @@ void socket_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
 		fprintf(stdout, "%s recevie udp data len: [%lu]\n", __func__, nread);
     }
 
+    if(conn->sock_buffer[1]==TUNNEL_CMD_CONNECT){
+        int guid_len = conn->sock_buffer[2];
+
+        char guid[129];
+        memcpy(guid, conn->sock_buffer + sizeof(tunnel_connect_header), guid_len);
+        guid[guid_len] = '\0';
+        fprintf(stdout, "on connect, guid : [%s]\n", guid);
+
+        int buf_len = sizeof(tunnel_connect_ok_done);
+        char connect_ok[1024];
+        connect_ok[0] = TUNNEL_VERSION;
+        connect_ok[1] = TUNNEL_CMD_CONNECT_OK;
+        connect_ok[2] = 10;
+        connect_ok[3] = 0;
+        connect_ok[4] = 1;
+        connect_ok[5] = 3;
+        connect_ok[6] = 1;
+
+        size_t s = sendto(conn->sockfd, connect_ok, buf_len, 0, (const struct sockaddr *)&conn->src_addr, conn->src_addr_len);
+
+        if (s == -1) {
+            perror("sendto");
+        }
+        else{
+            if(verbose){
+                fprintf(stdout, "%s sendto socket len: [%lu]\n", __func__, s);
+            }
+        }
+
+        return;
+    }
+
     //write to tun
     
     size_t nwrite;
@@ -210,7 +242,7 @@ void tun_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
     }
 }
 
-int tun_alloc(char* dev)
+int tun_alloc(char *dev)
 {
     struct ifreq ifr;
     int fd, err;
@@ -241,7 +273,7 @@ int tun_alloc(char* dev)
     return fd;
 }
 
-int tun_setup(const char* dev, const char* tunip, const char* netmask)
+int tun_setup(const char *dev, const char *tunip, const char *netmask)
 {
     struct ifreq ifr;
     struct sockaddr_in addr;
@@ -260,21 +292,19 @@ int tun_setup(const char* dev, const char* tunip, const char* netmask)
         return -1;
     }
     
-    // ifconfig tap0 10.0.1.5 #设定ip地址
+    // ifconfig tap0 10.0.1.5 #set ip address
     if ((err = ioctl(sockfd, SIOCSIFADDR, (void *)&ifr)) < 0) {
         perror("ioctl SIOSIFADDR");
         goto done;
     }
-    
-    /* 获得接口的标志 */
+
     if ((err = ioctl(sockfd, SIOCGIFFLAGS, (void *)&ifr)) < 0) {
         perror("ioctl SIOCGIFADDR");
         goto done;
     }
-    
-    /* 设置接口的标志 */
+
     ifr.ifr_flags |= IFF_UP;
-    // ifup tap0 #启动设备
+    // ifup tap0 #set up
     if ((err = ioctl(sockfd, SIOCSIFFLAGS, (void *)&ifr)) < 0) {
         perror("ioctl SIOCSIFFLAGS");
         goto done;
@@ -282,7 +312,7 @@ int tun_setup(const char* dev, const char* tunip, const char* netmask)
     
     inet_pton(AF_INET, netmask, &addr.sin_addr);
     bcopy(&addr, &ifr.ifr_netmask, sizeof(addr));
-    // ifconfig tap0 10.0.1.5/24 #设定子网掩码
+    // ifconfig tap0 10.0.1.5/24 #set sub netmask
     if ((err = ioctl(sockfd, SIOCSIFNETMASK, (void *) &ifr)) < 0) {
         perror("ioctl SIOCSIFNETMASK");
         goto done;
@@ -295,50 +325,40 @@ done:
     return err;
 }
 
-int main(int argc, char *argv[])
+void tunnel_server_start(const char *port, int v)
 {
-	int sfd = 0, s = 0;
+    verbose = v;
+
+    int sfd = 0, s = 0;
     int tunfd = 0;
 
-	if(argc<2){
-		fprintf(stderr, "Usage: %s [port] [-v]\n", argv[0]);
-		return -1;
-	}
-    
-    if(argc>=3){
-        if(strcmp(argv[2],"-v")==0){
-            verbose = 1;
-            fprintf(stdout,"verbose on\n");
-        }
-    }
-    
     char tun_dev[IFNAMSIZ] = "xtun";
     tunfd = tun_alloc(tun_dev);
-    tun_setup(tun_dev, "10.0.1.1", "255.255.255.0");
-    
+    tun_setup(tun_dev, "10.0.0.1", "255.255.0.0");
+
     s = socket_setnonblock(tunfd);
     if(s==-1){
-        abort();
-        return -1;
+        exit(1);
+        return;
     }
 
-	sfd = socket_create_and_bind(argv[1]);
-	if(sfd==-1){
-		abort();
-		return -1;
-	}
+    sfd = socket_create_and_bind(port);
+    if(sfd==-1){
+        exit(1);
+        return;
+    }
 
-	s = socket_setnonblock(sfd);
-	if(s==-1){
-		abort();
-		return -1;
-	}
+    s = socket_setnonblock(sfd);
+    if(s==-1){
+        exit(1);
+        return;
+    }
 
-	struct ev_loop *main_loop = ev_default_loop(0);
-    
+    struct ev_loop *main_loop = ev_default_loop(0);
+
     struct socket_conn_t sock_conn;
     memset(&sock_conn, 0, sizeof(struct socket_conn_t));
-    
+
     sock_conn.loop = main_loop;
     sock_conn.sockfd = sfd;
     sock_conn.tunfd = tunfd;
@@ -347,15 +367,13 @@ int main(int argc, char *argv[])
     sock_conn.sock_buf_size = 0;
     sock_conn.tun_buf_size = 0;
     sock_conn.tun_read_start = 0;
-    
+
     ev_io_init(&sock_conn.read_w, socket_read, sfd, EV_READ);
     ev_io_init(&sock_conn.tun_read_w, tun_read, tunfd, EV_READ);
     ev_io_start(main_loop, &sock_conn.read_w);
     //ev_io_start(main_loop, &sock_conn.tun_read_w);
 
-	ev_run(main_loop, 0);
-
-	return 0;
+    ev_run(main_loop, 0);
 }
 
 

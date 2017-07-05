@@ -1,11 +1,10 @@
 CC = gcc
 
-CFLAGS :=-g -Wall
+CFLAGS :=-g -Wall -std=gnu99
 CPPFLAGS += -I/usr/include/libev
 LDFLAGS += -lev
 
-
-SOURCES = src/tunnel_server.c src/base/cache.c src/base/utils.c
+SOURCES = src/main.c src/tunnel_server.c src/base/cache.c src/base/utils.c
 OBJECTS = $(SOURCES:.c=.o)
 
 all: server
@@ -15,7 +14,7 @@ server: $(OBJECTS)
 
 clean:
 	@echo "Cleanning project"
-	-rm *.o server
+	-rm src/*.o src/base/*.o server
 	-rm src/*.d src/base/*.d
 	@echo "Clean complete"
 
