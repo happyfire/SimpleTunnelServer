@@ -4,11 +4,12 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/socket.h>
+#include <stdbool.h>
 #include "uthash.h"
 
 typedef struct client
 {
-    char guid[129];
+    char guid[60];
     uint32_t ip;
     uint8_t sid;
     struct sockaddr_storage src_addr;
@@ -16,7 +17,7 @@ typedef struct client
 
     uint8_t version;
 
-    UT_hash_handle hh;
+    UT_hash_handle hh_ip, hh_guid;
 
 }client_t;
 
@@ -26,7 +27,7 @@ client_t* find_client(uint32_t ip);
 
 client_t* find_client_by_guid(char guid[]);
 
-void add_client(client_t* client);
+bool add_client(client_t* client);
 
 void delete_client(client_t *s);
 

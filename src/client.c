@@ -2,7 +2,7 @@
 #include "client.h"
 #include "utils.h"
 
-static client_t *g_clients = NULL;     //ip to client_t map
+static client_t *g_clients_ip = NULL;     //ip to client_t map
 static client_t *g_clients_guid = NULL; //guid to client_t map
 
 client_t* new_client()
@@ -17,47 +17,47 @@ client_t* new_client()
 client_t* find_client(uint32_t ip)
 {
     client_t *s = NULL;
-    HASH_FIND_INT(g_clients, &ip, s);
+    HASH_FIND(hh_ip, g_clients_ip, &ip, sizeof(uint32_t), s);
     return s;
 }
 
 client_t* find_client_by_guid(char guid[])
 {
     client_t *s = NULL;
-    HASH_FIND_STR(g_clients_guid, guid, s);
+    HASH_FIND(hh_guid, g_clients_guid, guid, strlen(guid), s);
     return s;
 }
 
-void add_client(client_t* client)
+bool add_client(client_t* client)
 {
     if(client == NULL){
-        return;
+        return false;
     }
 
-    client_t *s = NULL;
-
-    HASH_FIND_STR(g_clients_guid, client->guid, s);
+    client_t *s = find_client_by_guid(client->guid);
 
     if(s == NULL){
-        //add to g_clients
-        HASH_ADD_INT(g_clients, ip, client);
-        
         //add to g_clients_guid
-        HASH_ADD_STR(g_clients_guid, guid, client);
+        HASH_ADD(hh_guid, g_clients_guid, guid, strlen(client->guid), client);
 
+        //add to g_clients_ip
+        HASH_ADD(hh_ip, g_clients_ip, ip, sizeof(uint32_t), client);
+
+        return true;
     }
     else{
         LOGE("client already in hashmap!");
+        return false;
     }
 }
 
 void delete_client_by_ip(uint32_t ip)
 {
     client_t *s = NULL;
-    HASH_FIND_INT(g_clients, &ip, s);
+    HASH_FIND(hh_ip, g_clients_ip, &ip, sizeof(uint32_t), s);
     if(s != NULL){
-        HASH_DEL(g_clients, s);
-        HASH_DEL(g_clients_guid, s);
+        HASH_DELETE(hh_ip, g_clients_ip, s);
+        HASH_DELETE(hh_guid, g_clients_guid, s);
         free(s);
     }
 }
@@ -65,26 +65,26 @@ void delete_client_by_ip(uint32_t ip)
 void delete_client(client_t *s)
 {
     if(s != NULL){
-        HASH_DEL(g_clients, s);
-        HASH_DEL(g_clients_guid, s);
+        HASH_DELETE(hh_ip, g_clients_ip, s);
+        HASH_DELETE(hh_guid, g_clients_guid, s);
         free(s);
     }
 }
 
 void delete_all_clients()
 {
-    HASH_CLEAR(hh,g_clients_guid);
+    HASH_CLEAR(hh_guid, g_clients_guid);
 
     client_t *cur = NULL, *tmp = NULL;
 
-    HASH_ITER(hh, g_clients, cur, tmp){
-        HASH_DEL(g_clients, cur);
+    HASH_ITER(hh_ip, g_clients_ip, cur, tmp){
+        HASH_DELETE(hh_ip, g_clients_ip, cur);
         free(cur);
     }
 }
 
 int get_clients_count()
 {
-    unsigned int count = HASH_COUNT(g_clients);
+    unsigned int count = HASH_CNT(hh_ip, g_clients_ip);
     return count;
 }

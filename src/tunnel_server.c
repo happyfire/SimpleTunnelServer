@@ -171,7 +171,7 @@ void socket_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
     if(ctx->sock_buffer[1]==TUNNEL_CMD_CONNECT){
         int guid_len = ctx->sock_buffer[2];
 
-        char guid[129];
+        char guid[60];
         memcpy(guid, ctx->sock_buffer + sizeof(tunnel_connect_header), guid_len);
         guid[guid_len] = '\0';
         LOGV(1, "on connect, guid : [%s]", guid);
