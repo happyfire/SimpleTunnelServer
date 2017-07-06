@@ -1,49 +1,13 @@
-#include <ev.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <signal.h>
-#include <sys/unistd.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <netdb.h>
-#include <linux/if.h>
-#include <linux/if_tun.h>
-#include <sys/ioctl.h>
-#include <string.h>
 
-#include "utils.h"
 #include "tunnel_server.h"
-#include "tunnel_protocol.h"
 #include "client.h"
+#include "server_common.h"
 #include "server_ip.h"
+#include "server_connect.h"
 
 #if !defined(IFNAMSIZ)
 #define IFNAMSIZ 256
 #endif
-
-#define BUFFER_SIZE 10240
-
-
-struct server_ctx {
-	struct ev_loop *loop;
-    int sockfd;
-    int tunfd;
-	ev_io read_w;
-	ev_io tun_read_w;
-	char sock_buffer[BUFFER_SIZE];
-    size_t sock_buf_size;
-    char tun_buffer[BUFFER_SIZE];
-    size_t tun_buf_size;
-    int tun_read_start;
-
-    struct sockaddr_storage src_addr;
-    socklen_t src_addr_len;
-};
 
 void server_init()
 {
@@ -146,7 +110,7 @@ void socket_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
 
     memset(ctx->sock_buffer, 0, sizeof(ctx->sock_buffer));
     
-	ssize_t nread = recvfrom(ctx->sockfd, ctx->sock_buffer, BUFFER_SIZE, 0,
+	ssize_t nread = recvfrom(ctx->sockfd, ctx->sock_buffer, TUNNEL_BUF_SIZE, 0,
                             (struct sockaddr *)&src_addr, &src_addr_len);
 	if(nread <0 ){
         LOGE("recvfrom error");
@@ -160,70 +124,33 @@ void socket_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
 
     LOGV(3, "receive udp data len: [%lu]", nread);
 
-    if(ctx->sock_buffer[1]==TUNNEL_CMD_CONNECT){
-        int guid_len = ctx->sock_buffer[2];
+    uint8_t cmd = ctx->sock_buffer[TUNNEL_PAK_CMD_IDX];
 
-        char guid[60];
-        memcpy(guid, ctx->sock_buffer + sizeof(tunnel_connect_header), guid_len);
-        guid[guid_len] = '\0';
-        LOGV(1, "on connect, guid : [%s]", guid);
+    switch (cmd){
+        case TUNNEL_CMD_CONNECT:
+            server_on_connect(ctx);
+            break;
+        case TUNNEL_CMD_TRANS_OUT:
+        {
+            //write to tun
 
-        client_t *cli = find_client_by_guid(guid);
-        if(cli == NULL){
-            cli = new_client();
-            memcpy(cli->guid, guid, guid_len+1);
-            LOGV(1, "set client guid : [%s]", cli->guid);
-            cli->ip = server_allocate_ip();
+            size_t nwrite;
 
-            if(!add_client(cli)){
-                safe_free(cli);
-                LOGE("fail to add client");
-                return;
+            if((nwrite=write(ctx->tunfd, (void*)ctx->sock_buffer, ctx->sock_buf_size)) < 0){
+                perror("Writing data to tun");
             }
-            LOGV(1, "set client ip : [%d]", cli->ip);
+            else{
+                LOGV(3, "write to tun len: [%lu]", nwrite);
+
+                if(ctx->tun_read_start==0){
+                    ev_io_start(main_loop, &ctx->tun_read_w);
+                    ctx->tun_read_start = 1;
+                }
+            }
         }
-        else{
-            LOGV(1,"client reconnect. guid=%s",cli->guid);
-        }
-
-        int buf_len = sizeof(tunnel_connect_ok_done);
-        char connect_ok[1024];
-        char* tmp = connect_ok;
-        connect_ok[0] = TUNNEL_VERSION;
-        connect_ok[1] = TUNNEL_CMD_CONNECT_OK;
-        tmp+=2;
-        int* tmpi = (int*)tmp;
-        *tmpi = cli->ip;
-
-        connect_ok[6] = 1;
-
-        size_t s = sendto(ctx->sockfd, connect_ok, buf_len, 0, (const struct sockaddr *)&ctx->src_addr, ctx->src_addr_len);
-
-        if (s == -1) {
-            perror("sendto");
-        }
-        else{
-            LOGV(3, "sendto socket len: [%lu]", s);
-        }
-
-        return;
+            break;
     }
 
-    //write to tun
-    
-    size_t nwrite;
-    
-    if((nwrite=write(ctx->tunfd, (void*)ctx->sock_buffer, ctx->sock_buf_size)) < 0){
-        perror("Writing data to tun");
-    }
-    else{
-        LOGV(3, "write to tun len: [%lu]", nwrite);
-
-        if(ctx->tun_read_start==0){
-        	ev_io_start(main_loop, &ctx->tun_read_w);
-            ctx->tun_read_start = 1;
-        }
-    }
 }
 
 void tun_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
@@ -238,7 +165,7 @@ void tun_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
     
     size_t nread;
     
-    if((nread = read(ctx->tunfd, (void*)ctx->tun_buffer, BUFFER_SIZE)) < 0){
+    if((nread = read(ctx->tunfd, (void*)ctx->tun_buffer, TUNNEL_BUF_SIZE)) < 0){
         perror("Reading data from tun");
         exit(1);
     }

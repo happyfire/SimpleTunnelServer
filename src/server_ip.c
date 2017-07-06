@@ -19,14 +19,15 @@ void server_ip_init()
     next_ip_avaliable = min_ip;
 }
 
-uint32_t server_allocate_ip()
+void server_allocate_ip(uint32_t *out_ip, uint8_t *out_sid)
 {
-    uint32_t ip = htonl(next_ip_avaliable);
+    *out_ip = htonl(next_ip_avaliable);
     next_ip_avaliable ++;
     if(next_ip_avaliable > max_ip){
         next_ip_avaliable = min_ip;
     }
-    return ip;
+
+    *out_sid = 0;
 }
 
 void server_reclaim_ip(uint32_t ip)

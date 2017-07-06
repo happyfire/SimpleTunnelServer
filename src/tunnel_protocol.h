@@ -43,6 +43,10 @@
 #define TUNNEL_CMD_TRANS_OUT 0x04
 #define TUNNEL_CMD_TRANS_IN 0x05
 
+#define TUNNEL_PAK_VER_IDX 0
+#define TUNNEL_PAK_CMD_IDX 1
+#define TUNNEL_PAK_GUID_LEN_IDX 2
+
 #pragma pack(push)
 #pragma pack(1)
 
