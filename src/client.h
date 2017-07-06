@@ -5,7 +5,13 @@
 #include <stdint.h>
 #include <sys/socket.h>
 #include <stdbool.h>
+#include <ev.h>
 #include "uthash.h"
+
+#define CLIENT_STATE_CONNECT 1
+#define CLIENT_STATE_CONNECT_DONE 2
+
+struct server_ctx;
 
 typedef struct client
 {
@@ -15,8 +21,11 @@ typedef struct client
     struct sockaddr_storage src_addr;
     socklen_t src_addr_len;
 
+    ev_timer timeout_watcher;
     uint8_t version;
+    uint8_t state;
 
+    struct server_ctx *ctx;
     UT_hash_handle hh_ip, hh_guid;
 
 }client_t;
@@ -36,5 +45,7 @@ void delete_client_by_ip(uint32_t ip);
 void delete_all_clients();
 
 int get_clients_count();
+
+void client_debug(client_t *cli);
 
 #endif //_TUNNEL_CLIENT_H

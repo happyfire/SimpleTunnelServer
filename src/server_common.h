@@ -26,6 +26,7 @@
 
 struct server_ctx {
     struct ev_loop *loop;
+    int state;
     int sockfd;
     int tunfd;
     ev_io read_w;

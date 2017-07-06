@@ -11,6 +11,9 @@ client_t* new_client()
     if(s == NULL){
         LOGE("malloc failed!");
     }
+    else{
+        s->state = 0;
+    }
     return s;
 }
 
@@ -87,4 +90,12 @@ int get_clients_count()
 {
     unsigned int count = HASH_CNT(hh_ip, g_clients_ip);
     return count;
+}
+
+void client_debug(client_t *cli)
+{
+    LOG("cli.guid=%s",cli->guid);
+    LOG("cli.ip=%d",cli->ip);
+    LOG("cli.sid=%d",cli->sid);
+    LOG("cli.state=%d",cli->state);
 }

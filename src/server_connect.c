@@ -4,6 +4,7 @@
 #include "server_ip.h"
 
 void send_connect_ok(struct server_ctx *ctx, client_t *cli);
+void timeout_cb(struct ev_loop *main_loop, ev_timer *w, int events);
 
 void server_on_connect(struct server_ctx *ctx)
 {
@@ -30,40 +31,73 @@ void server_on_connect(struct server_ctx *ctx)
             LOGE("fail to add client");
             return;
         }
-
-        cli->src_addr = ctx->src_addr;
-        cli->src_addr_len = ctx->src_addr_len;
-        cli->version = ctx->sock_buffer[TUNNEL_PAK_VER_IDX];
-
         LOGV(1, "set client ip : [%d] sid : [%d]", cli->ip, cli->sid);
     }
     else{
         LOGV(1,"client reconnect. guid=%s",cli->guid);
     }
 
+    cli->state = CLIENT_STATE_CONNECT;
+    cli->src_addr = ctx->src_addr;
+    cli->src_addr_len = ctx->src_addr_len;
+    cli->ctx = ctx;
+    cli->version = ctx->sock_buffer[TUNNEL_PAK_VER_IDX];
+
     // Send connect ok packet to client
     send_connect_ok(ctx, cli);
 }
 
+void timeout_cb(struct ev_loop *main_loop, ev_timer *w, int events)
+{
+    if(EV_ERROR & events){
+        LOGE("error event");
+        return;
+    }
+
+    LOG("timeout");
+
+    client_t *cli = (client_t *)w->data;
+    if(cli->state == CLIENT_STATE_CONNECT){
+        LOG("resend connect ok");
+        send_connect_ok(cli->ctx, cli);
+    }
+    else{
+        client_debug(cli);
+    }
+
+}
+
 void send_connect_ok(struct server_ctx *ctx, client_t *cli)
 {
-    int buf_len = sizeof(tunnel_connect_ok_done);
-    char connect_ok[256];
-    char* tmp = connect_ok;
-    connect_ok[0] = TUNNEL_VERSION;
-    connect_ok[1] = TUNNEL_CMD_CONNECT_OK;
-    tmp+=2;
-    int* tmpi = (int*)tmp;
-    *tmpi = cli->ip;
+    tunnel_connect_ok_done packet;
+    packet.ver = TUNNEL_VERSION;
+    packet.cmd = TUNNEL_CMD_CONNECT_OK;
+    packet.ip = cli->ip;
+    packet.sid = cli->sid;
 
-    connect_ok[6] = 1;
-
-    size_t s = sendto(ctx->sockfd, connect_ok, buf_len, 0, (const struct sockaddr *)&ctx->src_addr, ctx->src_addr_len);
+    size_t s = sendto(ctx->sockfd, &packet, sizeof(tunnel_connect_ok_done), 0, (const struct sockaddr *)&cli->src_addr, cli->src_addr_len);
 
     if (s == -1) {
         perror("sendto");
     }
     else{
         LOGV(3, "sendto socket len: [%lu]", s);
+    }
+
+    // Start a timer to resend conenct ok, if not connect done received
+    cli->timeout_watcher.data = (void*)cli;
+    ev_timer_init(&cli->timeout_watcher, timeout_cb, 0.5, 0.);
+    ev_timer_start(ctx->loop, &cli->timeout_watcher);
+}
+
+void server_on_connect_done(struct server_ctx *ctx)
+{
+    // Parse the connect done packet, get ip
+    int ip = *((int*)&ctx->sock_buffer[2]);
+    LOGV(1, "on connect done ip : [%d]", ip);
+    client_t *cli = find_client(ip);
+    if(cli){
+        client_debug(cli);
+        cli->state = CLIENT_STATE_CONNECT_DONE;
     }
 }

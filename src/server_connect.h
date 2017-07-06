@@ -5,4 +5,6 @@
 
 void server_on_connect(struct server_ctx *ctx);
 
+void server_on_connect_done(struct server_ctx *ctx);
+
 #endif

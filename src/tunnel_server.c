@@ -130,6 +130,9 @@ void socket_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
         case TUNNEL_CMD_CONNECT:
             server_on_connect(ctx);
             break;
+        case TUNNEL_CMD_CONNECT_DONE:
+            server_on_connect_done(ctx);
+            break;
         case TUNNEL_CMD_TRANS_OUT:
         {
             //write to tun
