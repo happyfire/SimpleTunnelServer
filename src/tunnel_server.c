@@ -193,12 +193,12 @@ void socket_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
             fprintf(stdout, "set client ip : [%d]\n", cli->ip);
         }
         else{
-            fprintf(stdout,"client reconnect. guid=%s",cli->guid);
+            fprintf(stdout,"client reconnect. guid=%s\n",cli->guid);
         }
 
         int buf_len = sizeof(tunnel_connect_ok_done);
         char connect_ok[1024];
-        char* tmp = &connect_ok;
+        char* tmp = connect_ok;
         connect_ok[0] = TUNNEL_VERSION;
         connect_ok[1] = TUNNEL_CMD_CONNECT_OK;
         tmp+=2;

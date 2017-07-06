@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/socket.h>
-#include "base/uthash.h"
+#include "uthash.h"
 
 typedef struct client
 {
@@ -28,7 +28,9 @@ client_t* find_client_by_guid(char guid[]);
 
 void add_client(client_t* client);
 
-void delete_client(uint32_t ip);
+void delete_client(client_t *s);
+
+void delete_client_by_ip(uint32_t ip);
 
 void delete_all_clients();
 

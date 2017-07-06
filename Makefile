@@ -4,7 +4,7 @@ CFLAGS :=-g -Wall -std=gnu99
 CPPFLAGS += -I/usr/include/libev
 LDFLAGS += -lev
 
-SOURCES = src/main.c src/tunnel_server.c src/client.c src/base/cache.c src/base/utils.c
+SOURCES = src/main.c src/tunnel_server.c src/client.c src/utils.c
 OBJECTS = $(SOURCES:.c=.o)
 
 all: server
@@ -14,8 +14,7 @@ server: $(OBJECTS)
 
 clean:
 	@echo "Cleanning project"
-	-rm src/*.o src/base/*.o server
-	-rm src/*.d src/base/*.d
+	-rm src/*.o src/*.d server
 	@echo "Clean complete"
 
 .PHONY:clean

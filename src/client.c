@@ -37,30 +37,34 @@ void add_client(client_t* client)
         return;
     }
 
-    uint32_t key = client->ip;
-
     client_t *s = NULL;
-    client_t *s2 = NULL;
 
-    HASH_FIND_INT(g_clients, &key, s);
-    HASH_FIND_STR(g_clients_guid, client->guid, s2);
+    HASH_FIND_STR(g_clients_guid, client->guid, s);
 
-    if(s == NULL && s2 == NULL){
-        s = (client_t*)malloc(sizeof(client_t));
-        //add to g_clients
-        HASH_ADD_INT(g_clients, ip, s);
+    if(s == NULL){
         //add to g_clients_guid
-        HASH_ADD_STR(g_clients_guid, guid, s);
+        HASH_ADD_STR(g_clients_guid, guid, client);
+        //add to g_clients
+        HASH_ADD_INT(g_clients, ip, client);
     }
     else if(verbose){
         fprintf(stderr, "%s client already in hashmap!\n", __func__);
     }
 }
 
-void delete_client(uint32_t ip)
+void delete_client_by_ip(uint32_t ip)
 {
     client_t *s = NULL;
     HASH_FIND_INT(g_clients, &ip, s);
+    if(s != NULL){
+        HASH_DEL(g_clients, s);
+        HASH_DEL(g_clients_guid, s);
+        free(s);
+    }
+}
+
+void delete_client(client_t *s)
+{
     if(s != NULL){
         HASH_DEL(g_clients, s);
         HASH_DEL(g_clients_guid, s);
