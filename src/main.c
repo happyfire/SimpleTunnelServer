@@ -1,8 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "tunnel_server.h"
+#include "utils.h"
 
 int main(int argc, char *argv[])
 {
@@ -11,15 +13,14 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    int verbose = 0;
     if(argc>=3){
         if(strcmp(argv[2],"-v")==0){
-            verbose = 1;
-            fprintf(stdout,"verbose on\n");
+            g_verbose = 3;
+            LOG("verbose level:%d",g_verbose);
         }
     }
 
-    tunnel_server_start(argv[1],verbose);
+    tunnel_server_start(argv[1]);
 
     return 0;
 }

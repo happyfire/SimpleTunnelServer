@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include "client.h"
-
-extern int verbose;
+#include "utils.h"
 
 static client_t *g_clients = NULL;     //ip to client_t map
 static client_t *g_clients_guid = NULL; //guid to client_t map
@@ -10,9 +9,7 @@ client_t* new_client()
 {
     client_t *s = (client_t *)malloc(sizeof(client_t));
     if(s == NULL){
-        if(verbose) {
-            fprintf(stderr, "%s malloc failed!\n", __func__);
-        }
+        LOGE("malloc failed!");
     }
     return s;
 }
@@ -42,13 +39,15 @@ void add_client(client_t* client)
     HASH_FIND_STR(g_clients_guid, client->guid, s);
 
     if(s == NULL){
-        //add to g_clients_guid
-        HASH_ADD_STR(g_clients_guid, guid, client);
         //add to g_clients
         HASH_ADD_INT(g_clients, ip, client);
+        
+        //add to g_clients_guid
+        HASH_ADD_STR(g_clients_guid, guid, client);
+
     }
-    else if(verbose){
-        fprintf(stderr, "%s client already in hashmap!\n", __func__);
+    else{
+        LOGE("client already in hashmap!");
     }
 }
 

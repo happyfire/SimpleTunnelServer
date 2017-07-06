@@ -16,6 +16,7 @@
 #include <sys/ioctl.h>
 #include <string.h>
 
+#include "utils.h"
 #include "tunnel_server.h"
 #include "tunnel_protocol.h"
 #include "client.h"
@@ -26,8 +27,6 @@
 
 #define BUFFER_SIZE 10240
 
-
-int verbose = 0;
 
 static uint32_t min_ip;
 static uint32_t max_ip;
@@ -63,13 +62,13 @@ int socket_setnonblock(int fd)
 {
 	long flags = fcntl(fd, F_GETFL);
 	if(flags<0){
-		fprintf(stderr, "fcntl F_GETFL");
+		LOGE("fcntl F_GETFL");
 		return -1;
 	}
 
 	flags |= O_NONBLOCK;
 	if(fcntl(fd, F_SETFL, flags)<0){
-		fprintf(stderr, "fcntl F_SETFL");
+		LOGE("fcntl F_SETFL");
 		return -1;
 	}
 
@@ -82,7 +81,7 @@ int socket_setReusePort(int sockfd)
 	int reuse = 1;
 	ret = setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, (void*)&reuse, sizeof(reuse));
 	if(ret<0){
-		fprintf(stderr, "%s setsockopt SO_REUSEPORT error\n", __func__);
+		LOGE("setsockopt SO_REUSEPORT error");
 		return -1;
 	}
 
@@ -104,7 +103,7 @@ int socket_create_and_bind(const char *port)
 
 	s = getaddrinfo(NULL, port, &hints, &result);
 	if(s!=0){
-		fprintf(stderr, "%s getaddrinfo: %s\n", __func__, gai_strerror(s));
+		LOGE("getaddrinfo: %s\n", gai_strerror(s));
 		if(result!=NULL){
 			freeaddrinfo(result);
 		}
@@ -130,7 +129,7 @@ int socket_create_and_bind(const char *port)
 	}
 
 	if(rp==NULL){
-		fprintf(stderr, "%s Could not bind\n", __func__);
+		LOGE("Could not bind");
 		return -1;
 	}
 
@@ -143,7 +142,7 @@ void socket_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
 {
 	struct server_ctx *ctx = NULL;
 	if(EV_ERROR & events){
-		fprintf(stderr, "%s error event\n", __func__);
+		LOGE("error event");
 		return;
 	}
 
@@ -158,7 +157,7 @@ void socket_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
 	ssize_t nread = recvfrom(ctx->sockfd, ctx->sock_buffer, BUFFER_SIZE, 0,
                             (struct sockaddr *)&src_addr, &src_addr_len);
 	if(nread <0 ){
-		fprintf(stderr, "%s read error\n", __func__);
+        LOGE("recvfrom error");
         ctx->sock_buf_size = 0;
 		return;
 	}
@@ -167,9 +166,7 @@ void socket_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
     ctx->src_addr = src_addr;
     ctx->src_addr_len = src_addr_len;
 
-    if(verbose){
-		fprintf(stdout, "%s recevie udp data len: [%lu]\n", __func__, nread);
-    }
+    LOGV(3, "receive udp data len: [%lu]", nread);
 
     if(ctx->sock_buffer[1]==TUNNEL_CMD_CONNECT){
         int guid_len = ctx->sock_buffer[2];
@@ -177,23 +174,23 @@ void socket_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
         char guid[129];
         memcpy(guid, ctx->sock_buffer + sizeof(tunnel_connect_header), guid_len);
         guid[guid_len] = '\0';
-        fprintf(stdout, "on connect, guid : [%s]\n", guid);
+        LOGV(1, "on connect, guid : [%s]", guid);
 
         client_t *cli = find_client_by_guid(guid);
         if(cli == NULL){
             cli = new_client();
             memcpy(cli->guid, guid, guid_len+1);
-            fprintf(stdout, "set client guid : [%s]\n", cli->guid);
+            LOGV(1, "set client guid : [%s]", cli->guid);
             cli->ip = htonl(ctx->next_ip_avaliable);
             ctx->next_ip_avaliable ++;
             if(ctx->next_ip_avaliable > max_ip){
                 ctx->next_ip_avaliable = min_ip;
             }
             add_client(cli);
-            fprintf(stdout, "set client ip : [%d]\n", cli->ip);
+            LOGV(1, "set client ip : [%d]", cli->ip);
         }
         else{
-            fprintf(stdout,"client reconnect. guid=%s\n",cli->guid);
+            LOGV(1,"client reconnect. guid=%s",cli->guid);
         }
 
         int buf_len = sizeof(tunnel_connect_ok_done);
@@ -213,9 +210,7 @@ void socket_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
             perror("sendto");
         }
         else{
-            if(verbose){
-                fprintf(stdout, "%s sendto socket len: [%lu]\n", __func__, s);
-            }
+            LOGV(3, "sendto socket len: [%lu]", s);
         }
 
         return;
@@ -229,9 +224,8 @@ void socket_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
         perror("Writing data to tun");
     }
     else{
-        if(verbose){
-        	fprintf(stdout, "%s write to tun len: [%lu]\n", __func__, nwrite);
-        }
+        LOGV(3, "write to tun len: [%lu]", nwrite);
+
         if(ctx->tun_read_start==0){
         	ev_io_start(main_loop, &ctx->tun_read_w);
             ctx->tun_read_start = 1;
@@ -243,7 +237,7 @@ void tun_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
 {
     struct server_ctx *ctx = NULL;
     if(EV_ERROR & events){
-        fprintf(stderr, "%s error event\n", __func__);
+        LOGE("error event");
         return;
     }
     
@@ -257,10 +251,9 @@ void tun_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
     }
     
     ctx->tun_buf_size = nread;
-    
-    if(verbose){
-    	fprintf(stdout, "%s read tun len: [%lu]\n", __func__, nread);
-    }
+
+    LOGV(3, "read tun len: [%lu]", nread);
+
     
     size_t s = sendto(ctx->sockfd, ctx->tun_buffer, ctx->tun_buf_size, 0, (const struct sockaddr *)&ctx->src_addr, ctx->src_addr_len);
     
@@ -268,9 +261,7 @@ void tun_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
         perror("sendto");
     }
     else{
-        if(verbose){
-        	fprintf(stdout, "%s sendto socket len: [%lu]\n", __func__, s);
-        }
+        LOGV(3, "sendto socket len: [%lu]", s);
     }
 }
 
@@ -300,7 +291,7 @@ int tun_alloc(char *dev)
     
     strcpy(dev, ifr.ifr_name);
     
-    fprintf(stdout, "open tun dev:%s\n", dev);
+    LOG("open tun dev:%s", dev);
     
     return fd;
 }
@@ -350,17 +341,15 @@ int tun_setup(const char *dev, const char *tunip, const char *netmask)
         goto done;
     }
     
-    fprintf(stdout, "setup tun dev:%s [%s]\n", tunip, netmask);
+    LOG("setup tun dev:%s [%s]", tunip, netmask);
     
 done:
     close(sockfd);
     return err;
 }
 
-void tunnel_server_start(const char *port, int v)
+void tunnel_server_start(const char *port)
 {
-    verbose = v;
-
     int sfd = 0, s = 0;
     int tunfd = 0;
 
