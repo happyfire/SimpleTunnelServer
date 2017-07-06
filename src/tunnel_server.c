@@ -20,6 +20,7 @@
 #include "tunnel_server.h"
 #include "tunnel_protocol.h"
 #include "client.h"
+#include "server_ip.h"
 
 #if !defined(IFNAMSIZ)
 #define IFNAMSIZ 256
@@ -27,9 +28,6 @@
 
 #define BUFFER_SIZE 10240
 
-
-static uint32_t min_ip;
-static uint32_t max_ip;
 
 struct server_ctx {
 	struct ev_loop *loop;
@@ -43,19 +41,13 @@ struct server_ctx {
     size_t tun_buf_size;
     int tun_read_start;
 
-    uint32_t next_ip_avaliable;
-
     struct sockaddr_storage src_addr;
     socklen_t src_addr_len;
 };
 
 void server_init()
 {
-    struct in_addr sin_addr;
-    inet_pton(AF_INET, "10.0.0.2", &sin_addr);
-    min_ip = ntohl(sin_addr.s_addr);
-    inet_pton(AF_INET, "10.0.255.254", &sin_addr);
-    max_ip = ntohl(sin_addr.s_addr);
+    server_ip_init();
 }
 
 int socket_setnonblock(int fd)
@@ -181,12 +173,13 @@ void socket_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
             cli = new_client();
             memcpy(cli->guid, guid, guid_len+1);
             LOGV(1, "set client guid : [%s]", cli->guid);
-            cli->ip = htonl(ctx->next_ip_avaliable);
-            ctx->next_ip_avaliable ++;
-            if(ctx->next_ip_avaliable > max_ip){
-                ctx->next_ip_avaliable = min_ip;
+            cli->ip = server_allocate_ip();
+
+            if(!add_client(cli)){
+                safe_free(cli);
+                LOGE("fail to add client");
+                return;
             }
-            add_client(cli);
             LOGV(1, "set client ip : [%d]", cli->ip);
         }
         else{
@@ -390,7 +383,6 @@ void tunnel_server_start(const char *port)
     ctx.sock_buf_size = 0;
     ctx.tun_buf_size = 0;
     ctx.tun_read_start = 0;
-    ctx.next_ip_avaliable = min_ip;
 
     ev_io_init(&ctx.read_w, socket_read, sfd, EV_READ);
     ev_io_init(&ctx.tun_read_w, tun_read, tunfd, EV_READ);
