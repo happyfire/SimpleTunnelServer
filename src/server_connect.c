@@ -44,6 +44,8 @@ void server_on_connect(struct server_ctx *ctx)
     cli->version = ctx->sock_buffer[TUNNEL_PAK_VER_IDX];
     cli->resend_counter = 0;
 
+    ev_timer_stop(ctx->loop, &cli->timeout_watcher);
+
     // Send connect ok packet to client
     send_connect_ok(ctx, cli);
 }
