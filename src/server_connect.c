@@ -55,8 +55,6 @@ void timeout_cb(struct ev_loop *main_loop, ev_timer *w, int events)
         return;
     }
 
-    LOG("timeout");
-
     client_t *cli = (client_t *)w->data;
     if(cli->state == CLIENT_STATE_CONNECT){
         if(cli->resend_counter++ < SERVER_MAX_RESEND_COUNT) {
