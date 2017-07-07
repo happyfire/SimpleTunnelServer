@@ -4,6 +4,7 @@
 #include "server_common.h"
 #include "server_ip.h"
 #include "server_connect.h"
+#include "server_transout.h"
 
 #if !defined(IFNAMSIZ)
 #define IFNAMSIZ 256
@@ -134,23 +135,7 @@ void socket_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
             server_on_connect_done(ctx);
             break;
         case TUNNEL_CMD_TRANS_OUT:
-        {
-            //write to tun
-
-            size_t nwrite;
-
-            if((nwrite=write(ctx->tunfd, (void*)ctx->sock_buffer, ctx->sock_buf_size)) < 0){
-                perror("Writing data to tun");
-            }
-            else{
-                LOGV(3, "write to tun len: [%lu]", nwrite);
-
-                if(ctx->tun_read_start==0){
-                    ev_io_start(main_loop, &ctx->tun_read_w);
-                    ctx->tun_read_start = 1;
-                }
-            }
-        }
+            server_on_transout(ctx);
             break;
     }
 
