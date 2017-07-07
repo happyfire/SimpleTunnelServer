@@ -6,7 +6,7 @@
 void server_on_transin(struct server_ctx *ctx)
 {
     // Parse the ip packet, get client ip
-    char *ippack = ctx->tun_buffer;
+    char *ippack = ctx->tun_buffer.head;
     struct iphdr *ipheader = (struct iphdr *)ippack;
     uint8_t version = ipheader->version;
     uint32_t cli_ip;
@@ -14,7 +14,6 @@ void server_on_transin(struct server_ctx *ctx)
     switch (version) {
         case 4: {
             cli_ip = ipheader->daddr;
-            LOG("in cli_ip=%d",cli_ip);
             break;
         }
         case 6: {
@@ -32,17 +31,11 @@ void server_on_transin(struct server_ctx *ctx)
     }
 
     // Construct a trans-in cmd pack, and send to client
-    tunnel_trans_in_header header;
-    header.ver = TUNNEL_VERSION;
-    header.cmd = TUNNEL_CMD_TRANS_IN;
+    int buf_size = ctx->tun_buffer.size + sizeof(tunnel_trans_in_header);
+    ctx->tun_buffer.data[0] = TUNNEL_VERSION;
+    ctx->tun_buffer.data[1] = TUNNEL_CMD_TRANS_IN;
 
-    int header_size = sizeof(tunnel_trans_in_header);
-    int buf_size = ctx->tun_buf_size + header_size;
-    char buffer[buf_size];
-    memcpy(buffer, &header, header_size);
-    memcpy(buffer+header_size, ctx->tun_buffer, ctx->tun_buf_size);
-
-    size_t s = sendto(ctx->sockfd, buffer, buf_size, 0, (const struct sockaddr *)&cli->src_addr, cli->src_addr_len);
+    size_t s = sendto(ctx->sockfd, ctx->tun_buffer.data, buf_size, 0, (const struct sockaddr *)&cli->src_addr, cli->src_addr_len);
 
     if (s == -1) {
         perror("sendto");

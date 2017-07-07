@@ -31,7 +31,6 @@ void server_on_transout(struct server_ctx *ctx)
     switch (version) {
         case 4: {
             cli_ip = ipheader->saddr;
-            LOG("cli_ip=%d",cli_ip);
             break;
         }
         case 6: {

@@ -24,6 +24,18 @@
 
 #define TUNNEL_BUF_SIZE 10240
 
+struct server_buf {
+    char data[TUNNEL_BUF_SIZE];
+    char *head;
+    size_t size;
+};
+
+#define SERVER_BUF_INIT(buf) \
+do{ \
+    (buf)->size = 0; \
+    (buf)->head = (buf)->data; \
+}while(0)
+
 struct server_ctx {
     struct ev_loop *loop;
     int state;
@@ -33,8 +45,9 @@ struct server_ctx {
     ev_io tun_read_w;
     char sock_buffer[TUNNEL_BUF_SIZE];
     size_t sock_buf_size;
-    char tun_buffer[TUNNEL_BUF_SIZE];
-    size_t tun_buf_size;
+
+    struct server_buf tun_buffer;
+
     int tun_read_start;
 
     struct sockaddr_storage src_addr;

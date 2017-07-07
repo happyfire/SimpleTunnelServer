@@ -152,13 +152,15 @@ void tun_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
     ctx = (struct server_ctx *)client_w->data;
     
     size_t nread;
-    
-    if((nread = read(ctx->tunfd, (void*)ctx->tun_buffer, TUNNEL_BUF_SIZE)) < 0){
+
+    int trans_in_head_size = sizeof(tunnel_trans_in_header);
+    ctx->tun_buffer.head = ctx->tun_buffer.data + trans_in_head_size;
+    if((nread = read(ctx->tunfd, (void*)ctx->tun_buffer.head, TUNNEL_BUF_SIZE - trans_in_head_size)) < 0){
         perror("Reading data from tun");
         return;
     }
     
-    ctx->tun_buf_size = nread;
+    ctx->tun_buffer.size = nread;
 
     LOGV(3, "read tun len: [%lu]", nread);
 
@@ -288,7 +290,7 @@ void tunnel_server_start(const char *port)
     ctx.read_w.data = (void*)&ctx;
     ctx.tun_read_w.data = (void*)&ctx;
     ctx.sock_buf_size = 0;
-    ctx.tun_buf_size = 0;
+    SERVER_BUF_INIT(&ctx.tun_buffer);
     ctx.tun_read_start = 0;
 
     ev_io_init(&ctx.read_w, socket_read, sfd, EV_READ);
