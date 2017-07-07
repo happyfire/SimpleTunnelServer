@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include "client.h"
 #include "utils.h"
+#include "server_ip.h"
 
 static client_t *g_clients_ip = NULL;     //ip to client_t map
 static client_t *g_clients_guid = NULL; //guid to client_t map
@@ -10,9 +11,6 @@ client_t* new_client()
     client_t *s = (client_t *)malloc(sizeof(client_t));
     if(s == NULL){
         LOGE("malloc failed!");
-    }
-    else{
-        s->state = 0;
     }
     return s;
 }
@@ -59,6 +57,7 @@ void delete_client_by_ip(uint32_t ip)
     client_t *s = NULL;
     HASH_FIND(hh_ip, g_clients_ip, &ip, sizeof(uint32_t), s);
     if(s != NULL){
+        server_reclaim_ip(s->ip);
         HASH_DELETE(hh_ip, g_clients_ip, s);
         HASH_DELETE(hh_guid, g_clients_guid, s);
         free(s);
@@ -68,6 +67,7 @@ void delete_client_by_ip(uint32_t ip)
 void delete_client(client_t *s)
 {
     if(s != NULL){
+        server_reclaim_ip(s->ip);
         HASH_DELETE(hh_ip, g_clients_ip, s);
         HASH_DELETE(hh_guid, g_clients_guid, s);
         free(s);
@@ -94,8 +94,8 @@ int get_clients_count()
 
 void client_debug(client_t *cli)
 {
-    LOG("cli.guid=%s",cli->guid);
-    LOG("cli.ip=%d",cli->ip);
-    LOG("cli.sid=%d",cli->sid);
-    LOG("cli.state=%d",cli->state);
+    LOGV(1, "cli.guid=%s",cli->guid);
+    LOGV(1, "cli.ip=%d",cli->ip);
+    LOGV(1, "cli.sid=%d",cli->sid);
+    LOGV(1, "cli.state=%d",cli->state);
 }

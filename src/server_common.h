@@ -23,6 +23,7 @@
 #include "utils.h"
 
 #define TUNNEL_BUF_SIZE 10240
+#define SERVER_MAX_RESEND_COUNT 10
 
 struct server_buf {
     char data[TUNNEL_BUF_SIZE];

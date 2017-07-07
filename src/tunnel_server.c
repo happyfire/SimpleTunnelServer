@@ -5,6 +5,7 @@
 #include "server_ip.h"
 #include "server_connect.h"
 #include "server_transout.h"
+#include "server_transin.h"
 
 #if !defined(IFNAMSIZ)
 #define IFNAMSIZ 256

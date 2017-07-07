@@ -22,6 +22,7 @@ typedef struct client
     socklen_t src_addr_len;
 
     ev_timer timeout_watcher;
+    uint8_t  resend_counter;
     uint8_t version;
     uint8_t state;
 

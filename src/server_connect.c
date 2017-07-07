@@ -22,7 +22,7 @@ void server_on_connect(struct server_ctx *ctx)
         // Create a new client, add add to hash maps
         cli = new_client();
         memcpy(cli->guid, guid, guid_len+1);
-        LOGV(1, "set client guid : [%s]", cli->guid);
+        LOGV(1, "new client with guid : [%s]", cli->guid);
 
         server_allocate_ip(&cli->ip, &cli->sid); // Allocate IP for client
 
@@ -42,6 +42,7 @@ void server_on_connect(struct server_ctx *ctx)
     cli->src_addr_len = ctx->src_addr_len;
     cli->ctx = ctx;
     cli->version = ctx->sock_buffer[TUNNEL_PAK_VER_IDX];
+    cli->resend_counter = 0;
 
     // Send connect ok packet to client
     send_connect_ok(ctx, cli);
@@ -58,13 +59,15 @@ void timeout_cb(struct ev_loop *main_loop, ev_timer *w, int events)
 
     client_t *cli = (client_t *)w->data;
     if(cli->state == CLIENT_STATE_CONNECT){
-        LOG("resend connect ok");
-        send_connect_ok(cli->ctx, cli);
+        if(cli->resend_counter++ < SERVER_MAX_RESEND_COUNT) {
+            LOGV(1, "resend connect ok count = %d",cli->resend_counter);
+            send_connect_ok(cli->ctx, cli);
+        }
+        else{
+            LOGV(1, "resend connect ok count max, delete client");
+            delete_client(cli);
+        }
     }
-    else{
-        client_debug(cli);
-    }
-
 }
 
 void send_connect_ok(struct server_ctx *ctx, client_t *cli)
@@ -97,7 +100,7 @@ void server_on_connect_done(struct server_ctx *ctx)
     LOGV(1, "on connect done ip : [%d]", ip);
     client_t *cli = find_client(ip);
     if(cli){
-        client_debug(cli);
         cli->state = CLIENT_STATE_CONNECT_DONE;
+        client_debug(cli);
     }
 }

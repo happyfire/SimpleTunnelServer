@@ -1,6 +1,6 @@
 CC = gcc
 
-CFLAGS :=-g -Wall -std=gnu99
+CFLAGS :=-g -Wall -Werror -std=gnu99
 CPPFLAGS += -I/usr/include/libev
 LDFLAGS += -lev
 
