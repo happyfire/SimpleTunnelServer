@@ -31,6 +31,7 @@ void server_on_transout(struct server_ctx *ctx)
     switch (version) {
         case 4: {
             cli_ip = ipheader->saddr;
+            LOG("cli_ip=%d",cli_ip);
             break;
         }
         case 6: {
@@ -42,8 +43,9 @@ void server_on_transout(struct server_ctx *ctx)
     // Find client form ip and check sid
     client_t *cli = find_client(cli_ip);
     if(cli == NULL){
-        // Client not found, it should not connect first, so drop the pack.
+        // Client not found, it should not connect first or the server restarted, so this client should disconnect.
         LOGV(1, "client not found when receive trans-out pack. ip=%d, sid=%d",cli_ip,sid);
+        send_disconnect(ctx);
         return;
     }
 
@@ -52,6 +54,10 @@ void server_on_transout(struct server_ctx *ctx)
         send_disconnect(ctx);
         return;
     }
+
+    // Update client addr (real outband ip)  (Client addr maybe changed due to swich network)
+    cli->src_addr = ctx->src_addr;
+    cli->src_addr_len = ctx->src_addr_len;
 
     // Write ip pack to tun
     size_t nwrite;

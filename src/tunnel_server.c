@@ -155,22 +155,14 @@ void tun_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
     
     if((nread = read(ctx->tunfd, (void*)ctx->tun_buffer, TUNNEL_BUF_SIZE)) < 0){
         perror("Reading data from tun");
-        exit(1);
+        return;
     }
     
     ctx->tun_buf_size = nread;
 
     LOGV(3, "read tun len: [%lu]", nread);
 
-    
-    size_t s = sendto(ctx->sockfd, ctx->tun_buffer, ctx->tun_buf_size, 0, (const struct sockaddr *)&ctx->src_addr, ctx->src_addr_len);
-    
-    if (s == -1) {
-        perror("sendto");
-    }
-    else{
-        LOGV(3, "sendto socket len: [%lu]", s);
-    }
+    server_on_transin(ctx);
 }
 
 int tun_alloc(char *dev)
