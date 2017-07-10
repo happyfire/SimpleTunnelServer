@@ -9,6 +9,8 @@ int g_verbose;
 void* safe_malloc(size_t size);
 void safe_free(void *buf);
 
+#define IS_VERBOSE(verbose) (g_verbose>=(verbose))
+
 #define LOG(format, ...) \
 do{ \
     fprintf(stdout, "[TSLOG] "format"\n", ##__VA_ARGS__); \

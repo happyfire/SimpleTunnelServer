@@ -41,6 +41,6 @@ void server_on_transin(struct server_ctx *ctx)
         perror("sendto");
     }
     else{
-        LOGV(3, "sendto socket len: [%lu], cli ip=%d", s, cli->ip);
+        LOGV(5, "sendto socket len: [%lu], cli ip=%d", s, cli->ip);
     }
 }

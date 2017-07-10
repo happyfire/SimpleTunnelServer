@@ -65,7 +65,7 @@ void server_on_transout(struct server_ctx *ctx)
         perror("Writing ip pack to tun");
     }
     else{
-        LOGV(3, "write to tun len: [%lu]", nwrite);
+        LOGV(5, "write to tun len: [%lu]", nwrite);
 
         if(ctx->tun_read_start==0){
             ev_io_start(ctx->loop, &ctx->tun_read_w);

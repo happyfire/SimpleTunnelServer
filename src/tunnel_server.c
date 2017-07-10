@@ -124,7 +124,14 @@ void socket_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
     ctx->src_addr = src_addr;
     ctx->src_addr_len = src_addr_len;
 
-    LOGV(3, "receive udp data len: [%lu]", nread);
+    if(IS_VERBOSE(5)){
+        LOGV(5, "receive udp data len: [%lu]", nread);
+
+        char ip[INET_ADDRSTRLEN];
+        struct sockaddr_in *addr = (struct sockaddr_in *)&src_addr;
+        inet_ntop(AF_INET, &addr->sin_addr, ip, sizeof(ip));
+        LOGV(5, "client real ip:%s",ip);
+    }
 
     uint8_t cmd = ctx->sock_buffer[TUNNEL_PAK_CMD_IDX];
 
@@ -163,7 +170,7 @@ void tun_read(struct ev_loop *main_loop, struct ev_io *client_w, int events)
     
     ctx->tun_buffer.size = nread;
 
-    LOGV(3, "read tun len: [%lu]", nread);
+    LOGV(5, "read tun len: [%lu]", nread);
 
     server_on_transin(ctx);
 }
