@@ -43,7 +43,7 @@ void server_on_transout(struct server_ctx *ctx)
     client_t *cli = find_client(cli_ip);
     if(cli == NULL){
         // Client not found, it should not connect first or the server restarted, so this client should disconnect.
-        LOGV(1, "client not found when receive trans-out pack. ip=%d, sid=%d",cli_ip,sid);
+        LOGV(3, "client not found when receive trans-out pack. ip=%d, sid=%d",cli_ip,sid);
         send_disconnect(ctx);
         return;
     }
