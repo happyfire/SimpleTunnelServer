@@ -42,7 +42,7 @@ void server_on_transout(struct server_ctx *ctx)
     // Find client form ip and check sid
     client_t *cli = find_client(cli_ip);
     if(cli == NULL){
-        // Client not found, it should not connect first or the server restarted, so this client should disconnect.
+        // Client not found, it should not connect first or the ip be reallocated so kicked or the server restarted, so this client should disconnect.
         LOGV(3, "client not found when receive trans-out pack. ip=%d, sid=%d",cli_ip,sid);
         send_disconnect(ctx);
         return;
@@ -71,5 +71,15 @@ void server_on_transout(struct server_ctx *ctx)
             ev_io_start(ctx->loop, &ctx->tun_read_w);
             ctx->tun_read_start = 1;
         }
+    }
+
+    // Check ts and expand the delete timer
+    ev_tstamp now = ev_time();
+    if (now - cli->ts > CLIENT_EXPAND_TIMEOUT_TIME) {
+        LOGV(3, "client expand delete timeout");
+        cli->ts = now;
+        ev_timer_stop(ctx->loop, &cli->timeout_watcher);
+        ev_timer_init(&cli->timeout_watcher, timeout_cb_delete_client, CLIENT_TIMEOUT_TO_DELETE, 0.);
+        ev_timer_start(ctx->loop, &cli->timeout_watcher);
     }
 }

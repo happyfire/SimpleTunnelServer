@@ -43,6 +43,7 @@ void server_on_connect(struct server_ctx *ctx)
     cli->ctx = ctx;
     cli->version = ctx->sock_buffer[TUNNEL_PAK_VER_IDX];
     cli->resend_counter = 0;
+    cli->ts = ev_time();
 
     ev_timer_stop(ctx->loop, &cli->timeout_watcher);
 
@@ -58,6 +59,11 @@ void timeout_cb(struct ev_loop *main_loop, ev_timer *w, int events)
     }
 
     client_t *cli = (client_t *)w->data;
+    if(cli==NULL){
+        LOGE("client is null from ev_timer data");
+        return;
+    }
+
     if(cli->state == CLIENT_STATE_CONNECT){
         if(cli->resend_counter++ < SERVER_MAX_RESEND_COUNT) {
             LOGV(1, "resend connect ok count = %d",cli->resend_counter);
@@ -67,6 +73,14 @@ void timeout_cb(struct ev_loop *main_loop, ev_timer *w, int events)
             LOGV(1, "resend connect ok count max, delete client");
             delete_client(cli);
         }
+    }
+    else{
+        // Has already connected, now we need to start a long time timer to delete the client.
+        // And then, we check the cli->ts when receive package from client,
+        // if the ts is large enough, we restart the long time timer to expand the delete time.
+        ev_timer_stop(cli->ctx->loop, &cli->timeout_watcher);
+        ev_timer_init(&cli->timeout_watcher, timeout_cb_delete_client, CLIENT_TIMEOUT_TO_DELETE, 0.);
+        ev_timer_start(cli->ctx->loop, &cli->timeout_watcher);
     }
 }
 

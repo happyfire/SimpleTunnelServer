@@ -29,7 +29,7 @@ void server_ip_init()
     struct in_addr sin_addr;
     inet_pton(AF_INET, "10.0.0.2", &sin_addr);
     min_ip = ntohl(sin_addr.s_addr);
-    inet_pton(AF_INET, "10.0.0.10", &sin_addr);
+    inet_pton(AF_INET, "10.0.255.254", &sin_addr);
     max_ip = ntohl(sin_addr.s_addr);
 
     ip_count = max_ip - min_ip + 1;
